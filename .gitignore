@@ -1,0 +1,22 @@
+.env
+scratchpad.md
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Node
+node_modules/
+
+# OS/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Logs
+*.log
+
+# Build outputs
+dist/
+build/
