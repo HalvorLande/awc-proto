@@ -75,6 +75,7 @@ class ProffClient:
         self.s.headers.update({
             "Authorization": f"Token {api_key}",
             "Accept": "application/json",
+            "api-version": os.getenv("PROFF_API_VERSION", "1.1"),
         })
 
     def get(self, url: str, params: Optional[dict[str, Any]] = None) -> requests.Response:
@@ -159,6 +160,51 @@ def get_next_href(data: dict[str, Any]) -> Optional[str]:
     if isinstance(href, str) and href.strip():
         return href
     return None
+
+
+def find_working_account_scope(
+    client: ProffClient,
+    base_url: str,
+    code: str,
+    year: int,
+    min_value: int,
+) -> str:
+    """
+    Probes which 3rd token Proff accepts in the accounts filter.
+    We try several likely values and pick the first that returns 200.
+    """
+    range_value = f"{min_value}:"
+
+    candidates = [
+        os.getenv("PROFF_ACCOUNT_VIEW"),
+        "companyAccounts",
+        "annualAccounts",
+        "corporateAccounts",
+        "company",
+        "annual",
+        "corporate",
+        "COMPANY",
+        "ANNUAL",
+        "CORPORATE",
+    ]
+    candidates = [c for c in candidates if c]
+
+    last_error = None
+    for scope in candidates:
+        params = {
+            "pageSize": 1,
+            "accounts": f"{code}|{year}|{scope}",
+            "accountRange": range_value,
+        }
+        r = client.get(base_url, params=params)
+        if r.status_code == 200:
+            return scope
+        last_error = f"{r.status_code} {r.text[:300]}"
+
+    raise RuntimeError(
+        "Could not find a working accounts scope token. "
+        f"Last response: {last_error}"
+    )
 
 
 # -----------------------------
@@ -253,16 +299,11 @@ def main():
     code = args.account_code
     min_value = args.min_value
 
-    # Allow overriding accountRange syntax via env for easy adjustments:
-    # Example placeholder formats vary; easiest is copy from Swagger and paste into .env.
     account_range_env = os.getenv("PROFF_ACCOUNT_RANGE")
     if account_range_env:
         account_range_value = account_range_env
     else:
-        # Best-effort default. If Proff expects a different pattern in your tenant,
-        # set PROFF_ACCOUNT_RANGE in .env to the value from Swagger.
-        # Convention used here: "<CODE>:<YEAR>:<MIN>:<MAX>"
-        account_range_value = f"{code}|{year}|{min_value}"
+        account_range_value = f"{min_value}:"
 
     # Optional extra query params (JSON dict) for segmentation
     # Example: {"companyTypes":"AS,ASA","status":"active"} depending on what Proff supports in Swagger.
@@ -291,9 +332,8 @@ def main():
     # Build accounting filter and range
     # accounts must be 3 values separated by | (pipe): <CODE>|<YEAR>|<ACCOUNT_VIEW>
     # accountRange must be 2 values separated by : (colon): <MIN>:<MAX>
-    account_view = os.getenv("PROFF_ACCOUNT_VIEW", "companyAccounts")  # companyAccounts recommended :contentReference[oaicite:2]{index=2}
-    accounts_filter = f"{code}|{year}|{account_view}"
-    account_range_value = f"{min_value}:"
+    account_scope = find_working_account_scope(client, REGISTER_SEARCH_URL, code, year, min_value)
+    accounts_filter = f"{code}|{year}|{account_scope}"
 
     params = {
         "pageSize": PAGE_SIZE,
@@ -301,6 +341,7 @@ def main():
         "accountRange": account_range_value,
     }
     params.update(extra_params)
+    print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
 
 
     start_url = REGISTER_SEARCH_URL
