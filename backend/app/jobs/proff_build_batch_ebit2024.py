@@ -309,7 +309,8 @@ def main():
     if account_range_env:
         account_range_value = account_range_env
     else:
-        account_range_value = f"{min_value}:"
+        max_value = os.getenv("PROFF_MAX_VALUE", "9999999999999")
+        account_range_value = f"{code}|{year}|{min_value}:{max_value}"
 
     # Optional extra query params (JSON dict) for segmentation
     # Example: {"companyTypes":"AS,ASA","status":"active"} depending on what Proff supports in Swagger.
@@ -335,22 +336,27 @@ def main():
         run_id = str(run_id)
 
     # 2) Build first request
-    # Build accounting filter and range
-    # accounts must be 3 values separated by | (pipe): <CODE>|<YEAR>|<ACCOUNT_VIEW>
-    # accountRange must be 2 values separated by : (colon): <MIN>:<MAX>
-    account_scope = find_working_account_scope(client, REGISTER_SEARCH_URL, code, year, min_value)
-    accounts_filter = f"{code}|{year}|{account_scope}"
+    # Which account view to use in search: Proff expects 'company' or 'corporate'
+    accounts_view = os.getenv("PROFF_ACCOUNTS_VIEW", "company")
+    if accounts_view not in ("company", "corporate"):
+        raise SystemExit("PROFF_ACCOUNTS_VIEW must be 'company' or 'corporate'")
 
     params = {
         "pageSize": PAGE_SIZE,
-        "accounts": accounts_filter,
+        "accounts": accounts_view,
         "accountRange": account_range_value,
     }
     params.update(extra_params)
-    print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
-    start_url = build_url(REGISTER_SEARCH_URL, params)
+    start_url = REGISTER_SEARCH_URL
     next_url = start_url
-    next_params = None
+    next_params = params
+
+    probe = client.get(next_url, params=next_params)
+    print("Probe:", probe.status_code)
+    print("Probe URL:", probe.request.url)
+    print("Probe body:", probe.text[:300])
+    if probe.status_code != 200:
+        raise SystemExit("Probe failed; adjust accounts/accountRange.")
 
     # 3) Resume cursor (within this run)
     if args.resume:
