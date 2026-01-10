@@ -8,7 +8,7 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus, urlencode, urljoin
 
 import requests
 from dotenv import load_dotenv
@@ -163,12 +163,8 @@ def get_next_href(data: dict[str, Any]) -> Optional[str]:
 
 
 def build_url(base_url: str, params: dict[str, Any]) -> str:
-    parts = []
-    for key, value in params.items():
-        if value is None:
-            continue
-        parts.append(f"{key}={quote_plus(str(value), safe='|:')}")
-    return base_url + "?" + "&".join(parts)
+    qs = urlencode(params, safe="|:", quote_via=quote_plus)
+    return f"{base_url}?{qs}"
 
 
 def find_working_account_scope(
@@ -378,11 +374,11 @@ def main():
             if args.limit_pages and page > args.limit_pages:
                 break
 
-            r = client.get(next_url, params=next_params)
+            r = client.get(next_url, params=None)
             if not r.ok:
                 raise RuntimeError(
                     f"Proff search failed: {r.status_code} {r.text[:500]}\n"
-                    f"URL: {r.request.url}"
+                    f"Request URL: {r.request.url}"
                 )
 
             data = r.json()
