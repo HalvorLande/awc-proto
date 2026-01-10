@@ -348,14 +348,16 @@ def main():
     accounts_view = os.getenv("PROFF_ACCOUNTS_VIEW", "company")
     if accounts_view not in ("company", "corporate"):
         raise SystemExit("PROFF_ACCOUNTS_VIEW must be 'company' or 'corporate'")
+    accounts_param = code  # f.eks. "DR"
+    account_range_param = f"{code}|{year}|{min_value}:9999999999999"
 
     params = {
         "pageSize": PAGE_SIZE,
-        "accounts": accounts_filter,
-        "accountRange": account_range_value,
-    }
+        "accounts": accounts_param,
+        "accountRange": account_range_param,
+    }    
     params.update(extra_params)
-    print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
+    # print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
     start_url = build_url(REGISTER_SEARCH_URL, params)
     next_url = start_url
     next_params = params
