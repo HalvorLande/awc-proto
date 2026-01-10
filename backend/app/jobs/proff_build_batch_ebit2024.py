@@ -300,6 +300,14 @@ def main():
     engine = make_engine()
     client = ProffClient(PROFF_API_KEY)
 
+    # Sanity check: should return 200, not 401
+    test_url = f"{DEFAULT_PROFF_BASE_URL}/api/companies/register/NO"
+    r = client.get(test_url, params={"pageSize": 1})
+    print("Auth test:", r.status_code, r.text[:200])
+    if r.status_code == 401:
+        raise SystemExit("Proff token rejected (401). Check PROFF_API_KEY and whether trial is activated.")
+
+
     batch_name = args.batch_name
     year = args.year
     code = args.account_code
@@ -338,16 +346,17 @@ def main():
     # Build accounting filter and range
     # accounts must be 3 values separated by | (pipe): <CODE>|<YEAR>|<ACCOUNT_VIEW>
     # accountRange must be 2 values separated by : (colon): <MIN>:<MAX>
-    account_scope = find_working_account_scope(client, REGISTER_SEARCH_URL, code, year, min_value)
-    accounts_filter = f"{code}|{year}|{account_scope}"
+    # account_scope = find_working_account_scope(client, REGISTER_SEARCH_URL, code, year, min_value)
+    accounts_param = code  # f.eks. "DR"
+    account_range_param = f"{code}|{year}|{min_value}:9999999999999"
 
     params = {
         "pageSize": PAGE_SIZE,
-        "accounts": accounts_filter,
-        "accountRange": account_range_value,
-    }
+        "accounts": accounts_param,
+        "accountRange": account_range_param,
+    }    
     params.update(extra_params)
-    print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
+    # print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
     start_url = build_url(REGISTER_SEARCH_URL, params)
     next_url = start_url
     next_params = None
