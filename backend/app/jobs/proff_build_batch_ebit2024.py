@@ -353,16 +353,16 @@ def main():
 
     params = {
         "pageSize": PAGE_SIZE,
-        "accounts": accounts_param,
-        "accountRange": account_range_param,
-    }    
+        "accounts": accounts_view,
+        "accountRange": account_range_value,
+    }
     params.update(extra_params)
-    # print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
+    print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
     start_url = build_url(REGISTER_SEARCH_URL, params)
     next_url = start_url
-    next_params = params
+    next_params = None
 
-    probe = client.get(next_url, params=next_params)
+    probe = client.get(next_url, params=None)
     print("Probe:", probe.status_code)
     print("Probe URL:", probe.request.url)
     print("Probe body:", probe.text[:300])
