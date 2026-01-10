@@ -162,6 +162,15 @@ def get_next_href(data: dict[str, Any]) -> Optional[str]:
     return None
 
 
+def build_url(base_url: str, params: dict[str, Any]) -> str:
+    parts = []
+    for key, value in params.items():
+        if value is None:
+            continue
+        parts.append(f"{key}={quote_plus(str(value), safe='|:')}")
+    return base_url + "?" + "&".join(parts)
+
+
 def find_working_account_scope(
     client: ProffClient,
     base_url: str,
@@ -196,7 +205,8 @@ def find_working_account_scope(
             "accounts": f"{code}|{year}|{scope}",
             "accountRange": range_value,
         }
-        r = client.get(base_url, params=params)
+        url = build_url(base_url, params)
+        r = client.get(url, params=None)
         if r.status_code == 200:
             return scope
         last_error = f"{r.status_code} {r.text[:300]}"
@@ -342,11 +352,9 @@ def main():
     }
     params.update(extra_params)
     print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
-
-
-    start_url = REGISTER_SEARCH_URL
+    start_url = build_url(REGISTER_SEARCH_URL, params)
     next_url = start_url
-    next_params = params
+    next_params = None
 
     # 3) Resume cursor (within this run)
     if args.resume:
@@ -372,7 +380,10 @@ def main():
 
             r = client.get(next_url, params=next_params)
             if not r.ok:
-                raise RuntimeError(f"Proff search failed: {r.status_code} {r.text[:500]}")
+                raise RuntimeError(
+                    f"Proff search failed: {r.status_code} {r.text[:500]}\n"
+                    f"URL: {r.request.url}"
+                )
 
             data = r.json()
             orgnrs = extract_orgnrs_from_search_response(data)
