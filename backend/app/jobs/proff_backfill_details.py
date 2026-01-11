@@ -88,7 +88,8 @@ class ProffClient:
                 self._sleep(attempt)
                 continue
             if r.status_code == 401:
-                raise RuntimeError(f"Proff returned 401 Invalid token. URL={url}")
+                print(f"Proff 401 response body: {r.text[:300]}")
+                raise RuntimeError(f"Proff 401. Body={r.text[:300]}")
 
             # Retry on throttling and transient server errors
             if r.status_code in (429, 500, 502, 503, 504):
