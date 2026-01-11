@@ -90,6 +90,10 @@ class ProffClient:
                 self._sleep(attempt, retry_after=r.headers.get("Retry-After"))
                 continue
 
+            if r.status_code == 401:
+                print(f"Proff 401 response body: {r.text[:300]}")
+                raise RuntimeError(f"Proff 401. Body={r.text[:300]}")
+
             return r
 
         # final attempt (no swallow)
@@ -305,7 +309,7 @@ def main():
     r = client.get(test_url, params={"pageSize": 1})
     print("Auth test:", r.status_code, r.text[:200])
     if r.status_code == 401:
-        raise SystemExit("Proff token rejected (401). Check PROFF_API_KEY and whether trial is activated.")
+        raise RuntimeError(f"Proff 401. Body={r.text[:300]}")
 
 
     batch_name = args.batch_name
