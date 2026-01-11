@@ -36,7 +36,7 @@ REGISTER_SEARCH_URL = f"{DEFAULT_PROFF_BASE_URL}/api/companies/register/{COUNTRY
 # defaults for the "2396 companies with EBIT>50m in 2024"
 DEFAULT_YEAR = 2024
 DEFAULT_ACCOUNT_CODE = "DR"          # Operating profit (EBIT) from your Regnkoder sheet
-DEFAULT_MIN_VALUE = 50_000_000
+DEFAULT_MIN_VALUE = 50_000           # NB, Norwegian accounts (inc proff) typically measures in kNOK (50_000 = 50 MNOK)
 
 # Pagination / throttling
 PAGE_SIZE = int(os.getenv("PROFF_PAGE_SIZE", "100"))
@@ -357,7 +357,7 @@ def main():
         "accountRange": account_range_value,
     }
     params.update(extra_params)
-    print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
+#    print(f"[{now_utc_iso()}] Using accounts scope token: {account_scope}")
     start_url = build_url(REGISTER_SEARCH_URL, params)
     next_url = start_url
     next_params = None

@@ -17,7 +17,10 @@ from pathlib import Path
 
 # Load .env from backend folder (or project root) deterministically
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env", override=False)
-# If your .env sits in backend/, this resolves to: backend/.env
+
+API_KEY = os.getenv("PROFF_API_KEY")
+print("PROFF_API_KEY loaded:", "yes" if API_KEY else "no")
+print("PROFF_API_KEY first6:", API_KEY[:6] if API_KEY else None)
 
 
 # -----------------------------
@@ -64,8 +67,13 @@ class ProffClient:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url.rstrip("/")
         self.s = requests.Session()
-        # Proff requires literal "Token " prefix (per their docs)
-        self.s.headers.update({"Authorization": f"Token {api_key}", "Accept": "application/json"})
+        self.s.headers.update({
+            "Authorization": f"Token {api_key}",
+            "Accept": "application/json",
+            "api-version": os.getenv("PROFF_API_VERSION", "1.1"),
+        })
+        print("Proff headers:", dict(self.s.headers))
+
 
     def get_company_details(self, orgnr: str) -> tuple[int, dict[str, Any] | None, str]:
         """
@@ -79,6 +87,8 @@ class ProffClient:
             except requests.RequestException:
                 self._sleep(attempt)
                 continue
+            if r.status_code == 401:
+                raise RuntimeError(f"Proff returned 401 Invalid token. URL={url}")
 
             # Retry on throttling and transient server errors
             if r.status_code in (429, 500, 502, 503, 504):
