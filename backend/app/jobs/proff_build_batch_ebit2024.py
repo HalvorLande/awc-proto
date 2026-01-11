@@ -112,6 +112,49 @@ class ProffClient:
 
 
 # -----------------------------
+# Dry run check
+# -----------------------------
+def proff_dry_run_check(client, base_url: str) -> None:
+    """
+    Validates:
+      - auth works
+      - quota not exceeded
+      - first page response has expected shape
+    Does NOT write to DB.
+    """
+    url = f"{base_url}/api/companies/register/NO"
+    r = client.s.get(url, params={"pageSize": 1}, timeout=30)
+
+    body_preview = (r.text or "")[:300]
+
+    if r.status_code == 401:
+        # Proff can return both invalid token and call limit exceeded as 401
+        raise SystemExit(f"Proff 401. Body={body_preview}")
+
+    if not r.ok:
+        raise SystemExit(f"Proff auth/quota check failed: {r.status_code}. Body={body_preview}")
+
+    try:
+        data = r.json()
+    except Exception:
+        raise SystemExit(f"Proff returned non-JSON. status={r.status_code}. Body={body_preview}")
+
+    if "companies" not in data or not isinstance(data["companies"], list):
+        raise SystemExit(f"Unexpected response shape (missing companies list). Keys={list(data.keys())[:30]}")
+
+    # Optional pagination structure (don’t require it)
+    if "pagination" in data:
+        pag = data.get("pagination") or {}
+        nxt = (pag.get("next") or {})
+        href = nxt.get("href")
+        # href can be None; just validating type
+        if href is not None and not isinstance(href, str):
+            raise SystemExit("Unexpected pagination.next.href type")
+
+    print("Dry run OK: auth + quota + response shape validated.")
+
+
+# -----------------------------
 # Helpers
 # -----------------------------
 def now_utc_iso() -> str:
@@ -299,18 +342,16 @@ def main():
     parser.add_argument("--min-value", type=int, default=DEFAULT_MIN_VALUE)
     parser.add_argument("--resume", action="store_true", help="resume using checkpoint cursor within this run")
     parser.add_argument("--limit-pages", type=int, default=None, help="for testing: stop after N pages")
+    parser.add_argument("--dry-run", action="store_true", help="Validate auth/quota/shape and exit")
     args = parser.parse_args()
 
-    engine = make_engine()
     client = ProffClient(PROFF_API_KEY)
 
-    # Sanity check: should return 200, not 401
-    test_url = f"{DEFAULT_PROFF_BASE_URL}/api/companies/register/NO"
-    r = client.get(test_url, params={"pageSize": 1})
-    print("Auth test:", r.status_code, r.text[:200])
-    if r.status_code == 401:
-        raise RuntimeError(f"Proff 401. Body={r.text[:300]}")
+    if args.dry_run:
+        proff_dry_run_check(client, DEFAULT_PROFF_BASE_URL)
+        return
 
+    engine = make_engine()
 
     batch_name = args.batch_name
     year = args.year
