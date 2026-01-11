@@ -1,6 +1,6 @@
 DECLARE @pick_date DATE = CAST(GETDATE() AS DATE);
 DECLARE @year INT = 2024;
-DECLARE @top_n INT = 100;
+DECLARE @top_n INT = 20;
 
 -- 1) Clear existing picks for today (prototype-safe)
 DELETE FROM dbo.daily_top_pick
