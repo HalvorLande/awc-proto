@@ -11,7 +11,7 @@ DECLARE @year INT = 2024;
         equity
     FROM dbo.financial_statement
     WHERE [year] = @year
-      AND source = N'proff'
+      AND source IN (N'proff', N'proff_forvalt_excel')
       AND account_view = N'company'
 ),
 feat AS (
