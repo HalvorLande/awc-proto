@@ -1,11 +1,12 @@
 # DealRadar Database Data Dictionary (dbo)
-- Generated: **2026-01-12 09:56:22 UTC**
+- Generated: **2026-01-12 10:36:37 UTC**
 - Server: `AAD-GM12FD8W`
 - Database: `AwcProto`
-- Include row counts: `False`
+- Include row counts: `True`
 
 ---
 ## dbo.company
+- Approx rows: **2417**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -38,6 +39,7 @@
 
 ---
 ## dbo.company_contact_person
+- Approx rows: **10978**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -72,6 +74,7 @@
 
 ---
 ## dbo.daily_top_pick
+- Approx rows: **20**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -98,6 +101,7 @@
 
 ---
 ## dbo.financial_statement
+- Approx rows: **9487**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -130,6 +134,7 @@
 
 ---
 ## dbo.import_batch
+- Approx rows: **1**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -151,6 +156,7 @@
 
 ---
 ## dbo.import_batch_item
+- Approx rows: **2439**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -171,6 +177,7 @@
 
 ---
 ## dbo.ingestion_checkpoint
+- Approx rows: **7**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -192,6 +199,7 @@
 
 ---
 ## dbo.ingestion_run
+- Approx rows: **25**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -215,6 +223,7 @@
 
 ---
 ## dbo.outreach
+- Approx rows: **0**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -237,6 +246,7 @@
 
 ---
 ## dbo.proff_financial_item
+- Approx rows: **91468**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -263,6 +273,7 @@
 
 ---
 ## dbo.proff_raw_company
+- Approx rows: **0**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -284,6 +295,7 @@
 
 ---
 ## dbo.proff_raw_owners
+- Approx rows: **0**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -305,6 +317,7 @@
 
 ---
 ## dbo.proff_raw_structure
+- Approx rows: **0**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -326,6 +339,7 @@
 
 ---
 ## dbo.score
+- Approx rows: **73**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
