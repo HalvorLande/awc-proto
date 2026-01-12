@@ -1,6 +1,6 @@
 DECLARE @year INT = 2024;
 
-;WITH fs AS (
+;WITH fs_current AS (
     SELECT
         orgnr,
         [year],
@@ -14,19 +14,38 @@ DECLARE @year INT = 2024;
       AND source IN (N'proff', N'proff_forvalt_excel')
       AND account_view = N'company'
 ),
-feat AS (
+ebit_history AS (
     SELECT
         orgnr,
-        [year],
-        revenue,
-        ebit,
-        ebitda,
-        assets,
-        equity,
+        ebit
+    FROM dbo.financial_statement
+    WHERE [year] BETWEEN (@year - 2) AND @year
+      AND source IN (N'proff', N'proff_forvalt_excel')
+      AND account_view = N'company'
+),
+ebit_agg AS (
+    SELECT
+        orgnr,
+        AVG(CAST(ebit AS FLOAT)) AS avg_ebit_3yr
+    FROM ebit_history
+    GROUP BY orgnr
+),
+feat AS (
+    SELECT
+        fs_current.orgnr,
+        fs_current.[year],
+        fs_current.revenue,
+        fs_current.ebit,
+        fs_current.ebitda,
+        fs_current.assets,
+        fs_current.equity,
+        ebit_agg.avg_ebit_3yr,
         CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL ELSE ebit / revenue END AS ebit_margin,
         CASE WHEN equity  IS NULL OR equity  = 0 THEN NULL ELSE ebit / equity  END AS roe_proxy,
         CASE WHEN assets  IS NULL OR assets  = 0 THEN NULL ELSE equity / assets END AS equity_ratio
-    FROM fs
+    FROM fs_current
+    LEFT JOIN ebit_agg
+        ON ebit_agg.orgnr = fs_current.orgnr
 ),
 scored AS (
     SELECT
@@ -54,12 +73,12 @@ scored AS (
                 ELSE ((equity_ratio - 0.10) / (0.50 - 0.10)) * 100
             END)
           + 0.30 * (CASE
-                WHEN ebit IS NULL THEN 0
-                WHEN ebit >= 400000 THEN 100   -- 400 MNOK EBIT
-                WHEN ebit >= 200000 THEN 85
-                WHEN ebit >= 100000 THEN 70
-                WHEN ebit >=  50000 THEN 55
-                WHEN ebit >=  20000 THEN 40
+                WHEN avg_ebit_3yr IS NULL THEN 0
+                WHEN avg_ebit_3yr >= 300000 THEN 100   -- 300 MNOK avg EBIT (3yr)
+                WHEN avg_ebit_3yr >= 150000 THEN 85
+                WHEN avg_ebit_3yr >=  75000 THEN 70
+                WHEN avg_ebit_3yr >=  40000 THEN 55
+                WHEN avg_ebit_3yr >=  20000 THEN 40
                 ELSE 20
             END)
         ) AS bqs_score,
@@ -67,12 +86,12 @@ scored AS (
         -- ---------- DPS (0-100) ----------
         (
             0.60 * (CASE
-                WHEN ebit IS NULL THEN 0
-                WHEN ebit >= 400000 THEN 100
-                WHEN ebit >= 200000 THEN 85
-                WHEN ebit >= 100000 THEN 70
-                WHEN ebit >=  50000 THEN 55
-                WHEN ebit >=  20000 THEN 40
+                WHEN avg_ebit_3yr IS NULL THEN 0
+                WHEN avg_ebit_3yr >= 300000 THEN 100
+                WHEN avg_ebit_3yr >= 150000 THEN 85
+                WHEN avg_ebit_3yr >=  75000 THEN 70
+                WHEN avg_ebit_3yr >=  40000 THEN 55
+                WHEN avg_ebit_3yr >=  20000 THEN 40
                 ELSE 20
             END)
           + 0.40 * (CASE
@@ -91,6 +110,7 @@ scored AS (
         ebitda,
         assets,
         equity,
+        avg_ebit_3yr,
         ebit_margin,
         roe_proxy
     FROM feat
@@ -105,6 +125,7 @@ final AS (
         ebitda,
         assets,
         equity,
+        avg_ebit_3yr,
         ebit_margin,
         roe_proxy,
 
@@ -123,12 +144,12 @@ final AS (
                 END,
             ';ebit_band=',
                 CASE
-                    WHEN ebit IS NULL THEN 'na'
-                    WHEN ebit >= 400000 THEN '>=400m'
-                    WHEN ebit >= 200000 THEN '200-400m'
-                    WHEN ebit >= 100000 THEN '100-200m'
-                    WHEN ebit >=  50000 THEN '50-100m'
-                    ELSE '<50m'
+                    WHEN avg_ebit_3yr IS NULL THEN 'na'
+                    WHEN avg_ebit_3yr >= 300000 THEN '>=300m'
+                    WHEN avg_ebit_3yr >= 150000 THEN '150-300m'
+                    WHEN avg_ebit_3yr >=  75000 THEN '75-150m'
+                    WHEN avg_ebit_3yr >=  40000 THEN '40-75m'
+                    ELSE '<40m'
                 END,
             ';mrg=',
                 CASE
