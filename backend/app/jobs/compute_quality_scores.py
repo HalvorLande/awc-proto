@@ -79,13 +79,36 @@ def safe_divide(numerator: float | None, denominator: float | None) -> float | N
     return numerator / denominator
 
 
-def score_from_bands(value: float | None, bands: list[tuple[float, int]], fallback: int) -> int:
+def score_from_bands(value: float | None, bands: list[tuple[float, int]], fallback: int) -> float:
     if value is None:
         return 0
-    for threshold, score in bands:
-        if value >= threshold:
-            return score
-    return fallback
+    if not bands:
+        return float(fallback)
+
+    ordered_bands = sorted(bands, key=lambda band: band[0], reverse=True)
+    for index, (upper_threshold, upper_score) in enumerate(ordered_bands):
+        if value >= upper_threshold:
+            return float(upper_score)
+
+        lower_band = ordered_bands[index + 1] if index + 1 < len(ordered_bands) else None
+        if lower_band is None:
+            break
+        lower_threshold, lower_score = lower_band
+        if value >= lower_threshold:
+            span = upper_threshold - lower_threshold
+            if span == 0:
+                return float(lower_score)
+            ratio = (value - lower_threshold) / span
+            return lower_score + ratio * (upper_score - lower_score)
+
+    lowest_threshold, lowest_score = ordered_bands[-1]
+    if value <= 0:
+        return float(fallback)
+    span = lowest_threshold
+    if span == 0:
+        return float(lowest_score)
+    ratio = min(max(value / span, 0.0), 1.0)
+    return fallback + ratio * (lowest_score - fallback)
 
 
 def score_roe(roe_proxy: float | None) -> float:
