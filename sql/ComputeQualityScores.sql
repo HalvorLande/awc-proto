@@ -1,6 +1,17 @@
 DECLARE @year INT = 2024;
 
-;WITH fs AS (
+;WITH fs_hist AS (
+    SELECT
+        orgnr,
+        [year],
+        revenue,
+        ebitda
+    FROM dbo.financial_statement
+    WHERE [year] BETWEEN @year - 4 AND @year
+      AND source IN (N'proff', N'proff_forvalt_excel')
+      AND account_view = N'company'
+),
+fs AS (
     SELECT
         orgnr,
         [year],
@@ -13,6 +24,44 @@ DECLARE @year INT = 2024;
     WHERE [year] = @year
       AND source IN (N'proff', N'proff_forvalt_excel')
       AND account_view = N'company'
+),
+stability AS (
+    SELECT
+        orgnr,
+        COUNT(*) AS ebitda_years,
+        SUM(CASE WHEN ebitda > 0 THEN 1 ELSE 0 END) AS ebitda_positive_years,
+        SUM(CASE WHEN ebitda <= 0 THEN 1 ELSE 0 END) AS ebitda_negative_years,
+        STDEV(CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL ELSE ebitda / revenue END) AS ebitda_volatility,
+        AVG(CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL ELSE ebitda / revenue END) AS ebitda_avg_margin
+    FROM fs_hist
+    GROUP BY orgnr
+),
+stability_scored AS (
+    SELECT
+        orgnr,
+        ebitda_years,
+        ebitda_positive_years,
+        ebitda_negative_years,
+        ebitda_volatility,
+        ebitda_avg_margin,
+        CASE
+            WHEN ebitda_volatility IS NULL OR ebitda_avg_margin IS NULL OR ebitda_avg_margin = 0 THEN NULL
+            ELSE ebitda_volatility / ABS(ebitda_avg_margin)
+        END AS ebitda_cv,
+        CASE
+            WHEN ebitda_volatility IS NULL OR ebitda_avg_margin IS NULL OR ebitda_avg_margin = 0 THEN 50
+            WHEN ebitda_volatility / ABS(ebitda_avg_margin) <= 0.10 THEN 100
+            WHEN ebitda_volatility / ABS(ebitda_avg_margin) >= 1.00 THEN 0
+            ELSE (1 - ((ebitda_volatility / ABS(ebitda_avg_margin)) - 0.10) / (1.00 - 0.10)) * 100
+        END AS volatility_score,
+        CASE
+            WHEN ebitda_negative_years IS NULL THEN 50
+            ELSE CASE
+                WHEN (100 - (ebitda_negative_years * 20)) < 0 THEN 0
+                ELSE (100 - (ebitda_negative_years * 20))
+            END
+        END AS negative_year_score
+    FROM stability
 ),
 feat AS (
     SELECT
@@ -30,8 +79,8 @@ feat AS (
 ),
 scored AS (
     SELECT
-        orgnr,
-        [year],
+        feat.orgnr,
+        feat.[year],
 
         -- ---------- BQS (0-100) ----------
         (
@@ -62,7 +111,17 @@ scored AS (
                 WHEN ebit >=  20000 THEN 40
                 ELSE 20
             END)
-        ) AS bqs_score,
+        ) AS bqs_base_score,
+
+        -- ---------- Stability (0-100) ----------
+        COALESCE(
+            CASE
+                WHEN stability_scored.negative_year_score IS NULL THEN stability_scored.volatility_score
+                WHEN stability_scored.volatility_score IS NULL THEN stability_scored.negative_year_score
+                ELSE (0.70 * stability_scored.negative_year_score) + (0.30 * stability_scored.volatility_score)
+            END,
+            50
+        ) AS stability_score,
 
         -- ---------- DPS (0-100) ----------
         (
@@ -92,14 +151,23 @@ scored AS (
         assets,
         equity,
         ebit_margin,
-        roe_proxy
+        roe_proxy,
+        stability_scored.ebitda_years,
+        stability_scored.ebitda_positive_years,
+        stability_scored.ebitda_negative_years,
+        stability_scored.ebitda_volatility,
+        stability_scored.ebitda_avg_margin,
+        stability_scored.ebitda_cv
     FROM feat
+    LEFT JOIN stability_scored
+        ON stability_scored.orgnr = feat.orgnr
 ),
 final AS (
     SELECT
         orgnr,
         [year],
-        CAST((0.70*bqs_score + 0.30*dps_score) AS FLOAT) AS quality_score,
+        CAST((0.85*bqs_base_score + 0.15*stability_score) AS FLOAT) AS bqs_score,
+        CAST((0.70*(0.85*bqs_base_score + 0.15*stability_score) + 0.30*dps_score) AS FLOAT) AS quality_score,
         revenue,
         ebit,
         ebitda,
@@ -107,6 +175,13 @@ final AS (
         equity,
         ebit_margin,
         roe_proxy,
+        stability_score,
+        ebitda_years,
+        ebitda_positive_years,
+        ebitda_negative_years,
+        ebitda_volatility,
+        ebitda_avg_margin,
+        ebitda_cv,
 
         -- tags (simple, readable bands)
         CONCAT(
