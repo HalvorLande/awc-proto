@@ -1,5 +1,5 @@
 # DealRadar Database Data Dictionary (dbo)
-- Generated: **2026-01-12 10:36:37 UTC**
+- Generated: **2026-01-12 12:04:18 UTC**
 - Server: `AAD-GM12FD8W`
 - Database: `AwcProto`
 - Include row counts: `True`
@@ -74,7 +74,7 @@
 
 ---
 ## dbo.daily_top_pick
-- Approx rows: **20**
+- Approx rows: **93**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
