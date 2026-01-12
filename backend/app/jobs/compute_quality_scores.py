@@ -111,7 +111,7 @@ def score_equity_ratio(equity_ratio: float | None) -> float:
         return 100
     return ((equity_ratio - 0.10) / (0.50 - 0.10)) * 100
 
-
+# Compute Business Quality Score (BQS)
 def compute_bqs(features: FeatureRow) -> float:
     avg_ebit_score = score_from_bands(features.avg_ebit_3yr, AVG_EBIT_BANDS, fallback=20)
     return (
@@ -121,7 +121,7 @@ def compute_bqs(features: FeatureRow) -> float:
         + 0.30 * avg_ebit_score
     )
 
-
+# Compute Deployability Score (DPS): Everything else being equal, AWC favors largers transactions, i.e. higher ebit and revenue
 def compute_dps(features: FeatureRow) -> float:
     avg_ebit_score = score_from_bands(features.avg_ebit_3yr, AVG_EBIT_BANDS, fallback=20)
     revenue_score = score_from_bands(features.revenue, REVENUE_BANDS, fallback=20)
