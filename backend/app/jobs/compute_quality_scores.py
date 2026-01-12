@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterable, Mapping
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.db import SessionLocal, engine
 from app import models
