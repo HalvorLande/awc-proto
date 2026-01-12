@@ -281,7 +281,7 @@ USING (SELECT
     :company_name AS company_name,
     :person_name AS person_name,
     :role AS role,
-    :started_date AS started_date,
+    TRY_CONVERT(date, :started_date) AS started_date,
     :phone AS phone,
     :email AS email,
     :postal_address AS postal_address,
