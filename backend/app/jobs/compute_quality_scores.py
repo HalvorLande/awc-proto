@@ -535,6 +535,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     compute_quality_scores(args.year)
+    print_quick_check(SessionLocal(), 2024)
 
 
 if __name__ == "__main__":
