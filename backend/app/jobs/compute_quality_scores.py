@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import mean, pstdev
 from typing import Iterable, Mapping
 
 from sqlalchemy import text
@@ -46,6 +47,11 @@ class FeatureRow:
     assets: float | None
     equity: float | None
     avg_ebit_3yr: float | None
+    ebit_cagr: float | None
+    revenue_cagr: float | None
+    ebit_stability: float | None
+    margin_stability: float | None
+    avg_roe_3yr: float | None
     ebit_margin: float | None
     roe_proxy: float | None
     equity_ratio: float | None
@@ -127,6 +133,31 @@ def score_ebit_margin(ebit_margin: float | None) -> float:
     return (ebit_margin / 0.30) * 100
 
 
+def score_growth(cagr: float | None) -> float:
+    """Rewards robust growth with a target of ~20% CAGR and penalizes shrinkage."""
+    if cagr is None:
+        return 0
+    if cagr < 0:
+        return 0
+    if cagr >= 0.20:
+        return 100
+    return (cagr / 0.20) * 100
+
+
+def score_stability(stability: float | None) -> float:
+    """Rewards predictability: 1.0 means highly stable, 0.0 means highly volatile."""
+    if stability is None:
+        return 0
+    return stability * 100
+
+
+def score_roe_persistence(current_roe: float | None, avg_roe: float | None) -> float:
+    """
+    Checks if high returns are sustainable by blending current ROE with a multi-year average.
+    """
+    return 0.4 * score_roe(current_roe) + 0.6 * score_roe(avg_roe)
+
+
 def score_equity_ratio(equity_ratio: float | None) -> float:
     if equity_ratio is None or equity_ratio <= 0.10:
         return 0
@@ -134,14 +165,33 @@ def score_equity_ratio(equity_ratio: float | None) -> float:
         return 100
     return ((equity_ratio - 0.10) / (0.50 - 0.10)) * 100
 
+
 # Compute Business Quality Score (BQS)
 def compute_bqs(features: FeatureRow) -> float:
-    avg_ebit_score = score_from_bands(features.avg_ebit_3yr, AVG_EBIT_BANDS, fallback=20)
+    # AWC's compounder framework is built on quality, not magnitude.
+    # 1) "Time is an ally": stability of EBIT over time, so volatility is penalized.
+    stability_score = score_stability(features.ebit_stability)
+
+    # 2) "Robust Growth": positive trajectory is rewarded, shrinking companies are penalized.
+    # We blend EBIT and revenue growth to avoid a single-metric distortion.
+    growth_score = 0.6 * score_growth(features.ebit_cagr) + 0.4 * score_growth(features.revenue_cagr)
+
+    # 3) "High ROC": persistence is more important than a one-off good year.
+    profitability_score = score_roe_persistence(features.roe_proxy, features.avg_roe_3yr)
+
+    # 4) "Moat": high margins should persist despite competition.
+    # We score both the absolute margin and the stability of margins over time.
+    moat_score = 0.6 * score_ebit_margin(features.ebit_margin) + 0.4 * score_stability(
+        features.margin_stability
+    )
+
+    # Keep a modest balance sheet check, but do not let size inflate quality.
     return (
-        0.30 * score_roe(features.roe_proxy)
-        + 0.25 * score_ebit_margin(features.ebit_margin)
-        + 0.15 * score_equity_ratio(features.equity_ratio)
-        + 0.30 * avg_ebit_score
+        0.30 * profitability_score
+        + 0.20 * moat_score
+        + 0.25 * growth_score
+        + 0.15 * stability_score
+        + 0.10 * score_equity_ratio(features.equity_ratio)
     )
 
 # Compute Deployability Score (DPS): Everything else being equal, AWC favors largers transactions, i.e. higher ebit and revenue
@@ -215,7 +265,7 @@ def fetch_financial_rows(year: int) -> tuple[list[Mapping[str, object]], list[Ma
     )
     ebit_history_sql = text(
         """
-        SELECT orgnr, ebit
+        SELECT orgnr, [year], ebit, revenue, equity
         FROM dbo.financial_statement
         WHERE [year] BETWEEN :start_year AND :year
           AND source IN (N'proff', N'proff_forvalt_excel')
@@ -227,35 +277,111 @@ def fetch_financial_rows(year: int) -> tuple[list[Mapping[str, object]], list[Ma
         fs_current = connection.execute(fs_current_sql, {"year": year}).mappings().all()
         ebit_history = connection.execute(
             ebit_history_sql,
-            {"start_year": year - 2, "year": year},
+            {"start_year": year - 4, "year": year},
         ).mappings().all()
 
     return fs_current, ebit_history
 
 
-def compute_avg_ebit(ebit_history: Iterable[Mapping[str, object]]) -> dict[str, float | None]:
-    sums: dict[str, float] = defaultdict(float)
-    counts: dict[str, int] = defaultdict(int)
-    for row in ebit_history:
-        orgnr = row["orgnr"]
-        ebit = row["ebit"]
-        if ebit is None:
-            continue
-        sums[orgnr] += float(ebit)
-        counts[orgnr] += 1
+@dataclass
+class HistoryMetrics:
+    avg_ebit_3yr: float | None
+    ebit_cagr: float | None
+    revenue_cagr: float | None
+    ebit_stability: float | None
+    margin_stability: float | None
+    avg_roe_3yr: float | None
 
-    averages: dict[str, float | None] = {}
-    for orgnr in set(list(sums.keys()) + list(counts.keys())):
-        if counts.get(orgnr):
-            averages[orgnr] = sums[orgnr] / counts[orgnr]
-        else:
-            averages[orgnr] = None
-    return averages
+
+def compute_cagr(start_value: float | None, end_value: float | None, years: int) -> float | None:
+    if start_value is None or end_value is None or years <= 0:
+        return None
+    if start_value <= 0 or end_value <= 0:
+        return None
+    return (end_value / start_value) ** (1 / years) - 1
+
+
+def compute_stability(values: list[float]) -> float | None:
+    """
+    Stability uses coefficient of variation (CV).
+    Lower CV means more predictable earnings; we invert to [0, 1].
+    """
+    if len(values) < 3:
+        return None
+    avg_value = mean(values)
+    if avg_value <= 0:
+        return None
+    cv = pstdev(values) / avg_value
+    return max(0.0, 1.0 - (cv * 2))
+
+
+def compute_history_metrics(
+    history_rows: Iterable[Mapping[str, object]],
+) -> dict[str, HistoryMetrics]:
+    """
+    Convert raw financial history into quality-centric metrics aligned with AWC's
+    "Investment DNA":
+    - Time is an ally -> stability (predictability) of EBIT and margins.
+    - Robust growth -> CAGR for EBIT and revenue.
+    - Moat & high ROC -> stability of margins and persistence of ROE.
+    """
+    grouped: dict[str, list[tuple[int, float | None, float | None, float | None]]] = defaultdict(list)
+    for row in history_rows:
+        grouped[row["orgnr"]].append(
+            (
+                int(row["year"]),
+                float(row["ebit"]) if row["ebit"] is not None else None,
+                float(row["revenue"]) if row["revenue"] is not None else None,
+                float(row["equity"]) if row["equity"] is not None else None,
+            )
+        )
+
+    metrics: dict[str, HistoryMetrics] = {}
+    for orgnr, rows in grouped.items():
+        rows.sort(key=lambda item: item[0])
+
+        ebits = [value for _, value, _, _ in rows if value is not None]
+        revenues = [value for _, _, value, _ in rows if value is not None]
+        margins = [
+            ebit / revenue
+            for _, ebit, revenue, _ in rows
+            if ebit is not None and revenue not in (None, 0)
+        ]
+        roes = [
+            ebit / equity
+            for _, ebit, _, equity in rows
+            if ebit is not None and equity not in (None, 0)
+        ]
+
+        avg_ebit_3yr = mean(ebits) if ebits else None
+        avg_roe_3yr = mean(roes) if roes else None
+
+        start_year, end_year = rows[0][0], rows[-1][0]
+        years = end_year - start_year
+        ebit_cagr = compute_cagr(rows[0][1], rows[-1][1], years)
+        revenue_cagr = compute_cagr(rows[0][2], rows[-1][2], years)
+
+        # "Time is an ally": stable EBIT implies predictability in compounding.
+        ebit_stability = compute_stability(ebits)
+
+        # "Moat": stable margins signal pricing power that persists under competition.
+        margin_stability = compute_stability(margins)
+
+        metrics[orgnr] = HistoryMetrics(
+            avg_ebit_3yr=avg_ebit_3yr,
+            ebit_cagr=ebit_cagr,
+            revenue_cagr=revenue_cagr,
+            ebit_stability=ebit_stability if ebit_stability is not None else 0.5,
+            margin_stability=margin_stability if margin_stability is not None else 0.5,
+            avg_roe_3yr=avg_roe_3yr,
+        )
+
+    return metrics
 
 
 def build_features(
     fs_current: Iterable[Mapping[str, object]],
-    avg_ebit: Mapping[str, float | None],
+    history_metrics: Mapping[str, HistoryMetrics],
 ) -> list[FeatureRow]:
     features: list[FeatureRow] = []
     for row in fs_current:
@@ -268,6 +394,18 @@ def build_features(
         roe_proxy = safe_divide(ebit, equity)
         equity_ratio = safe_divide(equity, assets)
 
+        metrics = history_metrics.get(
+            row["orgnr"],
+            HistoryMetrics(
+                avg_ebit_3yr=None,
+                ebit_cagr=None,
+                revenue_cagr=None,
+                ebit_stability=0.5,
+                margin_stability=0.5,
+                avg_roe_3yr=None,
+            ),
+        )
+
         features.append(
             FeatureRow(
                 orgnr=row["orgnr"],
@@ -277,7 +415,12 @@ def build_features(
                 ebitda=row["ebitda"],
                 assets=assets,
                 equity=equity,
-                avg_ebit_3yr=avg_ebit.get(row["orgnr"]),
+                avg_ebit_3yr=metrics.avg_ebit_3yr,
+                ebit_cagr=metrics.ebit_cagr,
+                revenue_cagr=metrics.revenue_cagr,
+                ebit_stability=metrics.ebit_stability,
+                margin_stability=metrics.margin_stability,
+                avg_roe_3yr=metrics.avg_roe_3yr,
                 ebit_margin=ebit_margin,
                 roe_proxy=roe_proxy,
                 equity_ratio=equity_ratio,
@@ -373,8 +516,8 @@ def print_quick_check(session: Session, year: int, limit: int = 50) -> None:
 
 def compute_quality_scores(year: int) -> None:
     fs_current, ebit_history = fetch_financial_rows(year)
-    avg_ebit = compute_avg_ebit(ebit_history)
-    features = build_features(fs_current, avg_ebit)
+    history_metrics = compute_history_metrics(ebit_history)
+    features = build_features(fs_current, history_metrics)
     scores = compute_scores(features)
 
     with SessionLocal() as session:
