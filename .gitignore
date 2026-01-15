@@ -17,6 +17,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Configuration files and API keys
+config/
+
 # Build outputs
 dist/
 build/
