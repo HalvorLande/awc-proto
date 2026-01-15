@@ -222,11 +222,22 @@ USING (SELECT
     :revenue AS revenue,
     :ebitda AS ebitda,
     :ebit AS ebit,
+    :cfo AS cfo,
     :assets AS assets,
     :equity AS equity,
-    :cash AS cash,
+    :net_debt AS net_debt,
     :source AS source,
-    :fetched_at_utc AS fetched_at_utc
+    :fetched_at_utc AS fetched_at_utc,
+    :cogs AS cogs,
+    :payroll_expenses AS payroll_expenses,
+    :depreciation AS depreciation,
+    :inventory AS inventory,
+    :trade_receivables AS trade_receivables,
+    :trade_payables AS trade_payables,
+    :cash_equivalents AS cash_equivalents,
+    :goodwill AS goodwill,
+    :dividend AS dividend,
+    :total_debt AS total_debt
 ) AS src
 ON tgt.orgnr = src.orgnr
 AND tgt.[year] = src.[year]
@@ -235,14 +246,72 @@ WHEN MATCHED THEN UPDATE SET
     revenue = COALESCE(src.revenue, tgt.revenue),
     ebitda = COALESCE(src.ebitda, tgt.ebitda),
     ebit = COALESCE(src.ebit, tgt.ebit),
+    cfo = COALESCE(src.cfo, tgt.cfo),
     assets = COALESCE(src.assets, tgt.assets),
     equity = COALESCE(src.equity, tgt.equity),
+    net_debt = COALESCE(src.net_debt, tgt.net_debt),
+    cogs = COALESCE(src.cogs, tgt.cogs),
+    payroll_expenses = COALESCE(src.payroll_expenses, tgt.payroll_expenses),
+    depreciation = COALESCE(src.depreciation, tgt.depreciation),
+    inventory = COALESCE(src.inventory, tgt.inventory),
+    trade_receivables = COALESCE(src.trade_receivables, tgt.trade_receivables),
+    trade_payables = COALESCE(src.trade_payables, tgt.trade_payables),
+    cash_equivalents = COALESCE(src.cash_equivalents, tgt.cash_equivalents),
+    goodwill = COALESCE(src.goodwill, tgt.goodwill),
+    dividend = COALESCE(src.dividend, tgt.dividend),
+    total_debt = COALESCE(src.total_debt, tgt.total_debt),
     source = src.source,
     fetched_at_utc = src.fetched_at_utc,
     account_view = COALESCE(tgt.account_view, src.account_view, 'company')
 WHEN NOT MATCHED THEN
-    INSERT (orgnr, [year], revenue, ebitda, ebit, assets, equity, source, fetched_at_utc, account_view)
-    VALUES (src.orgnr, src.[year], src.revenue, src.ebitda, src.ebit, src.assets, src.equity, src.source, src.fetched_at_utc, src.account_view);
+    INSERT (
+        orgnr,
+        [year],
+        revenue,
+        ebitda,
+        ebit,
+        cfo,
+        assets,
+        equity,
+        net_debt,
+        source,
+        fetched_at_utc,
+        account_view,
+        cogs,
+        payroll_expenses,
+        depreciation,
+        inventory,
+        trade_receivables,
+        trade_payables,
+        cash_equivalents,
+        goodwill,
+        dividend,
+        total_debt
+    )
+    VALUES (
+        src.orgnr,
+        src.[year],
+        src.revenue,
+        src.ebitda,
+        src.ebit,
+        src.cfo,
+        src.assets,
+        src.equity,
+        src.net_debt,
+        src.source,
+        src.fetched_at_utc,
+        src.account_view,
+        src.cogs,
+        src.payroll_expenses,
+        src.depreciation,
+        src.inventory,
+        src.trade_receivables,
+        src.trade_payables,
+        src.cash_equivalents,
+        src.goodwill,
+        src.dividend,
+        src.total_debt
+    );
 """
 
 # Optional: also upsert selected codes into proff_financial_item (if you want to keep that fact table aligned)
@@ -338,9 +407,19 @@ METRIC_PREFIX_TO_FIELD = {
     "Driftsres.": "ebit",
     "Sum eiend.": "assets",
     "Sum egenkap.": "equity",
-    "Kasse/bank/post": "cash",
-    "Avskr. varige driftsmidl.": "depr",  # for computing EBITDA = EBIT + depreciation (if no EBITDA column)
+    "Kasse/bank/post": "cash_equivalents",
+    "Avskr. varige driftsmidl.": "depreciation",  # for computing EBITDA = EBIT + depreciation (if no EBITDA column)
     "Sum salgsinntekter": "sales_revenue",
+    "Vareforbr.": "cogs",
+    "Lønnskostnader": "payroll_expenses",
+    "Sum varelager": "inventory",
+    "Kundefordringer": "trade_receivables",
+    "Leverandørgjeld": "trade_payables",
+    "Goodwill": "goodwill",
+    "Utbytte": "dividend",
+    "Sum gjeld": "total_debt",
+    "Netto kontantstrøm fra operasjonelle aktiviteter": "cfo",
+    "Kontantstrøm fra operasjonelle aktiviteter": "cfo",
 }
 
 # Optional mapping into proff_financial_item codes (core only)
@@ -349,7 +428,7 @@ FIELD_TO_PROFF_CODE = {
     "ebit": "DR",
     "assets": "SED",
     "equity": "SEK",
-    "cash": "KBP",
+    "cash_equivalents": "KBP",
 }
 
 
@@ -432,14 +511,27 @@ def import_one_file(engine, path: Path) -> None:
                 ebit = metrics.get("ebit")
                 assets = metrics.get("assets")
                 equity = metrics.get("equity")
-                cash = metrics.get("cash")
-                depr = metrics.get("depr")
+                cash_equivalents = metrics.get("cash_equivalents")
+                depreciation = metrics.get("depreciation")
+                cogs = metrics.get("cogs")
+                payroll_expenses = metrics.get("payroll_expenses")
+                inventory = metrics.get("inventory")
+                trade_receivables = metrics.get("trade_receivables")
+                trade_payables = metrics.get("trade_payables")
+                goodwill = metrics.get("goodwill")
+                dividend = metrics.get("dividend")
+                total_debt = metrics.get("total_debt")
+                cfo = metrics.get("cfo")
 
                 # EBITDA: if explicitly exists in sheet later, you can map it;
                 # otherwise approximate = EBIT + depreciation (if both present)
                 ebitda = None
-                if ebit is not None and depr is not None:
-                    ebitda = ebit + depr
+                if ebit is not None and depreciation is not None:
+                    ebitda = ebit + depreciation
+
+                net_debt = None
+                if total_debt is not None and cash_equivalents is not None:
+                    net_debt = total_debt - cash_equivalents
 
                 fs_params = {
                     "orgnr": orgnr,
@@ -448,11 +540,22 @@ def import_one_file(engine, path: Path) -> None:
                     "revenue": revenue,
                     "ebitda": ebitda,
                     "ebit": ebit,
+                    "cfo": cfo,
                     "assets": assets,
                     "equity": equity,
-                    "cash": cash,
+                    "net_debt": net_debt,
                     "source": SOURCE_NAME,
                     "fetched_at_utc": fetched_at,
+                    "cogs": cogs,
+                    "payroll_expenses": payroll_expenses,
+                    "depreciation": depreciation,
+                    "inventory": inventory,
+                    "trade_receivables": trade_receivables,
+                    "trade_payables": trade_payables,
+                    "cash_equivalents": cash_equivalents,
+                    "goodwill": goodwill,
+                    "dividend": dividend,
+                    "total_debt": total_debt,
                 }
                 conn.execute(text(MERGE_FIN_STATEMENT), fs_params)
 
