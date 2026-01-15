@@ -1,12 +1,12 @@
 # DealRadar Database Data Dictionary (dbo)
-- Generated: **2026-01-12 12:26:32 UTC**
+- Generated: **2026-01-15 17:14:13 UTC**
 - Server: `AAD-GM12FD8W`
 - Database: `AwcProto`
 - Include row counts: `True`
 
 ---
 ## dbo.company
-- Approx rows: **2417**
+- Approx rows: **2426**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -39,7 +39,7 @@
 
 ---
 ## dbo.company_contact_person
-- Approx rows: **10978**
+- Approx rows: **11025**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -74,7 +74,7 @@
 
 ---
 ## dbo.daily_top_pick
-- Approx rows: **93**
+- Approx rows: **120**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -101,7 +101,7 @@
 
 ---
 ## dbo.financial_statement
-- Approx rows: **9487**
+- Approx rows: **9531**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -118,6 +118,16 @@
 | 11 | `source` | nvarchar(50) | NO | NO | ('proff') |
 | 12 | `fetched_at_utc` | datetime2 | YES | NO |  |
 | 13 | `account_view` | nvarchar(40) | NO | NO |  |
+| 14 | `cogs` | float | YES | NO |  |
+| 15 | `payroll_expenses` | float | YES | NO |  |
+| 16 | `depreciation` | float | YES | NO |  |
+| 17 | `inventory` | float | YES | NO |  |
+| 18 | `trade_receivables` | float | YES | NO |  |
+| 19 | `trade_payables` | float | YES | NO |  |
+| 20 | `cash_equivalents` | float | YES | NO |  |
+| 21 | `goodwill` | float | YES | NO |  |
+| 22 | `dividend` | float | YES | NO |  |
+| 23 | `total_debt` | float | YES | NO |  |
 
 ### Key Constraints
 - **PRIMARY KEY** `PK__financia__3213E83F445E86B7`: (`id`)
@@ -246,7 +256,7 @@
 
 ---
 ## dbo.proff_financial_item
-- Approx rows: **91468**
+- Approx rows: **91687**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -351,6 +361,7 @@
 | 6 | `catalyst_score` | float | NO | NO |  |
 | 7 | `tags` | varchar(500) | YES | NO |  |
 | 8 | `computed_at` | datetime | NO | NO |  |
+| 9 | `financial_data_availability` | int | NO | NO | ((0)) |
 
 ### Key Constraints
 - **PRIMARY KEY** `PK__score__3213E83FFDE70548`: (`id`)
