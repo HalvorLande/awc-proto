@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import mean, pstdev
+from statistics import mean
 from typing import Iterable, Mapping
 
 from sqlalchemy import text
@@ -20,22 +20,6 @@ from app.db import SessionLocal, engine
 from app import models
 
 
-AVG_EBIT_BANDS = [
-    (300_000, 100),
-    (150_000, 85),
-    (75_000, 70),
-    (40_000, 55),
-    (20_000, 40),
-]
-
-REVENUE_BANDS = [
-    (5_000_000, 100),
-    (2_000_000, 85),
-    (1_000_000, 70),
-    (500_000, 55),
-    (200_000, 40),
-]
-
 
 @dataclass
 class FeatureRow:
@@ -43,18 +27,13 @@ class FeatureRow:
     year: int
     revenue: float | None
     ebit: float | None
-    ebitda: float | None
-    assets: float | None
     equity: float | None
-    avg_ebit_3yr: float | None
-    ebit_cagr: float | None
     revenue_cagr: float | None
-    ebit_stability: float | None
-    margin_stability: float | None
-    avg_roe_3yr: float | None
-    ebit_margin: float | None
-    roe_proxy: float | None
-    equity_ratio: float | None
+    avg_roic: float | None
+    margin_change_pp: float | None
+    avg_cash_conversion: float | None
+    avg_nwc_sales: float | None
+    goodwill_ratio: float | None
 
 
 @dataclass
@@ -67,138 +46,121 @@ class ScoreRow:
     tags: str
     revenue: float | None
     ebit: float | None
-    ebitda: float | None
-    assets: float | None
     equity: float | None
-    avg_ebit_3yr: float | None
-    ebit_margin: float | None
-    roe_proxy: float | None
+    goodwill_ratio: float | None
 
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def safe_divide(numerator: float | None, denominator: float | None) -> float | None:
-    if numerator is None or denominator in (None, 0):
-        return None
-    return numerator / denominator
-
-
-def score_from_bands(value: float | None, bands: list[tuple[float, int]], fallback: int) -> float:
-    if value is None:
-        return 0
-    if not bands:
-        return float(fallback)
-
-    ordered_bands = sorted(bands, key=lambda band: band[0], reverse=True)
-    for index, (upper_threshold, upper_score) in enumerate(ordered_bands):
-        if value >= upper_threshold:
-            return float(upper_score)
-
-        lower_band = ordered_bands[index + 1] if index + 1 < len(ordered_bands) else None
-        if lower_band is None:
-            break
-        lower_threshold, lower_score = lower_band
-        if value >= lower_threshold:
-            span = upper_threshold - lower_threshold
-            if span == 0:
-                return float(lower_score)
-            ratio = (value - lower_threshold) / span
-            return lower_score + ratio * (upper_score - lower_score)
-
-    lowest_threshold, lowest_score = ordered_bands[-1]
-    if value <= 0:
-        return float(fallback)
-    span = lowest_threshold
-    if span == 0:
-        return float(lowest_score)
-    ratio = min(max(value / span, 0.0), 1.0)
-    return fallback + ratio * (lowest_score - fallback)
-
-
-def score_roe(roe_proxy: float | None) -> float:
-    if roe_proxy is None or roe_proxy <= 0:
-        return 0
-    if roe_proxy >= 0.25:
-        return 100
-    return (roe_proxy / 0.25) * 100
-
-
-def score_ebit_margin(ebit_margin: float | None) -> float:
-    if ebit_margin is None or ebit_margin <= 0:
-        return 0
-    if ebit_margin >= 0.30:
-        return 100
-    return (ebit_margin / 0.30) * 100
-
-
-def score_growth(cagr: float | None) -> float:
-    """Rewards robust growth with a target of ~20% CAGR and penalizes shrinkage."""
-    if cagr is None:
-        return 0
-    if cagr < 0:
-        return 0
-    if cagr >= 0.20:
-        return 100
-    return (cagr / 0.20) * 100
-
-
-def score_stability(stability: float | None) -> float:
-    """Rewards predictability: 1.0 means highly stable, 0.0 means highly volatile."""
-    if stability is None:
-        return 0
-    return stability * 100
-
-
-def score_roe_persistence(current_roe: float | None, avg_roe: float | None) -> float:
+def clamped_linear_score(
+    val: float | None,
+    neutral_val: float,
+    neutral_score: float,
+    max_val: float,
+    max_score: float,
+    min_val: float,
+    min_score: float,
+) -> float:
     """
-    Checks if high returns are sustainable by blending current ROE with a multi-year average.
+    Interpolates a score linearly based on a neutral point, a cap, and a floor.
     """
-    return 0.4 * score_roe(current_roe) + 0.6 * score_roe(avg_roe)
+    if val is None:
+        return 0.0
+
+    if val >= max_val:
+        return max_score
+    if val <= min_val:
+        return min_score
+
+    if val > neutral_val:
+        slope = (max_score - neutral_score) / (max_val - neutral_val)
+        return neutral_score + (val - neutral_val) * slope
+
+    if val < neutral_val:
+        slope = (neutral_score - min_score) / (neutral_val - min_val)
+        return neutral_score - (neutral_val - val) * slope
+
+    return neutral_score
 
 
-def score_equity_ratio(equity_ratio: float | None) -> float:
-    if equity_ratio is None or equity_ratio <= 0.10:
-        return 0
-    if equity_ratio >= 0.50:
-        return 100
-    return ((equity_ratio - 0.10) / (0.50 - 0.10)) * 100
 
 
-# Compute Business Quality Score (BQS)
-def compute_bqs(features: FeatureRow) -> float:
-    # AWC's compounder framework is built on quality, not magnitude.
-    # 1) "Time is an ally": stability of EBIT over time, so volatility is penalized.
-    stability_score = score_stability(features.ebit_stability)
-
-    # 2) "Robust Growth": positive trajectory is rewarded, shrinking companies are penalized.
-    # We blend EBIT and revenue growth to avoid a single-metric distortion.
-    growth_score = 0.6 * score_growth(features.ebit_cagr) + 0.4 * score_growth(features.revenue_cagr)
-
-    # 3) "High ROC": persistence is more important than a one-off good year.
-    profitability_score = score_roe_persistence(features.roe_proxy, features.avg_roe_3yr)
-
-    # 4) "Moat": high margins should persist despite competition.
-    # We score both the absolute margin and the stability of margins over time.
-    moat_score = 0.6 * score_ebit_margin(features.ebit_margin) + 0.4 * score_stability(
-        features.margin_stability
+def compute_compounder_score(features: FeatureRow) -> float:
+    """
+    Calculates AWC Compounder Score (-100 to +100) using continuous interpolation.
+    """
+    score_roic = clamped_linear_score(
+        features.avg_roic,
+        neutral_val=0.10,
+        neutral_score=0,
+        max_val=0.25,
+        max_score=30,
+        min_val=0.00,
+        min_score=-20,
     )
 
-    # Keep a modest balance sheet check, but do not let size inflate quality.
-    return (
-        0.30 * profitability_score
-        + 0.20 * moat_score
-        + 0.25 * growth_score
-        + 0.15 * stability_score
-        + 0.10 * score_equity_ratio(features.equity_ratio)
+    score_growth = clamped_linear_score(
+        features.revenue_cagr,
+        neutral_val=0.05,
+        neutral_score=0,
+        max_val=0.20,
+        max_score=20,
+        min_val=-0.05,
+        min_score=-20,
     )
 
-# Compute Deployability Score (DPS): Everything else being equal, AWC favors largers transactions, i.e. higher ebit and revenue
-def compute_dps(features: FeatureRow) -> float:
-    avg_ebit_score = score_from_bands(features.avg_ebit_3yr, AVG_EBIT_BANDS, fallback=20)
-    revenue_score = score_from_bands(features.revenue, REVENUE_BANDS, fallback=20)
-    return 0.60 * avg_ebit_score + 0.40 * revenue_score
+    score_moat = clamped_linear_score(
+        features.margin_change_pp,
+        neutral_val=0.00,
+        neutral_score=5,
+        max_val=0.10,
+        max_score=20,
+        min_val=-0.10,
+        min_score=-20,
+    )
+
+    score_cash = clamped_linear_score(
+        features.avg_cash_conversion,
+        neutral_val=0.70,
+        neutral_score=0,
+        max_val=1.00,
+        max_score=10,
+        min_val=0.40,
+        min_score=-10,
+    )
+
+    score_efficiency = clamped_linear_score(
+        features.avg_nwc_sales,
+        neutral_val=0.15,
+        neutral_score=0,
+        max_val=0.00,
+        max_score=10,
+        min_val=0.30,
+        min_score=-10,
+    )
+
+    score_risk = clamped_linear_score(
+        features.goodwill_ratio,
+        neutral_val=0.40,
+        neutral_score=0,
+        max_val=0.00,
+        max_score=10,
+        min_val=0.80,
+        min_score=-10,
+    )
+
+    total_score = (
+        score_roic
+        + score_growth
+        + score_moat
+        + score_cash
+        + score_efficiency
+        + score_risk
+    )
+
+    return max(-100.0, min(100.0, total_score))
 
 
 def revenue_band(revenue: float | None) -> str:
@@ -215,48 +177,33 @@ def revenue_band(revenue: float | None) -> str:
     return "<0.5bn"
 
 
-def ebit_band(avg_ebit_3yr: float | None) -> str:
-    if avg_ebit_3yr is None:
-        return "na"
-    if avg_ebit_3yr >= 300_000:
-        return ">=300m"
-    if avg_ebit_3yr >= 150_000:
-        return "150-300m"
-    if avg_ebit_3yr >= 75_000:
-        return "75-150m"
-    if avg_ebit_3yr >= 40_000:
-        return "40-75m"
-    return "<40m"
-
-
-def margin_band(ebit_margin: float | None) -> str:
-    if ebit_margin is None:
-        return "na"
-    if ebit_margin >= 0.30:
-        return ">=30%"
-    if ebit_margin >= 0.20:
-        return "20-30%"
-    if ebit_margin >= 0.10:
-        return "10-20%"
-    if ebit_margin >= 0.05:
-        return "5-10%"
-    return "<5%"
-
-
 def build_tags(features: FeatureRow) -> str:
     return (
-        "QS_v1;"
+        "QS_v2;"
         "view=company;"
         f"rev_band={revenue_band(features.revenue)};"
-        f"ebit_band={ebit_band(features.avg_ebit_3yr)};"
-        f"mrg={margin_band(features.ebit_margin)}"
+        f"gm_trend={'na' if features.margin_change_pp is None else f'{features.margin_change_pp:.3f}'}"
     )
 
 
 def fetch_financial_rows(year: int) -> tuple[list[Mapping[str, object]], list[Mapping[str, object]]]:
     fs_current_sql = text(
         """
-        SELECT orgnr, [year], revenue, ebit, ebitda, assets, equity
+        SELECT orgnr,
+               [year],
+               revenue,
+               ebit,
+               equity,
+               goodwill,
+               net_debt,
+               cash_equivalents,
+               cogs,
+               payroll_expenses,
+               depreciation,
+               inventory,
+               trade_receivables,
+               trade_payables,
+               dividend
         FROM dbo.financial_statement
         WHERE [year] = :year
           AND source IN (N'proff', N'proff_forvalt_excel')
@@ -265,7 +212,19 @@ def fetch_financial_rows(year: int) -> tuple[list[Mapping[str, object]], list[Ma
     )
     ebit_history_sql = text(
         """
-        SELECT orgnr, [year], ebit, revenue, equity
+        SELECT orgnr,
+               [year],
+               revenue,
+               ebit,
+               equity,
+               net_debt,
+               cash_equivalents,
+               cogs,
+               depreciation,
+               inventory,
+               trade_receivables,
+               trade_payables,
+               dividend
         FROM dbo.financial_statement
         WHERE [year] BETWEEN :start_year AND :year
           AND source IN (N'proff', N'proff_forvalt_excel')
@@ -285,12 +244,11 @@ def fetch_financial_rows(year: int) -> tuple[list[Mapping[str, object]], list[Ma
 
 @dataclass
 class HistoryMetrics:
-    avg_ebit_3yr: float | None
-    ebit_cagr: float | None
     revenue_cagr: float | None
-    ebit_stability: float | None
-    margin_stability: float | None
-    avg_roe_3yr: float | None
+    avg_roic: float | None
+    margin_change_pp: float | None
+    avg_cash_conversion: float | None
+    avg_nwc_sales: float | None
 
 
 def compute_cagr(start_value: float | None, end_value: float | None, years: int) -> float | None:
@@ -301,79 +259,67 @@ def compute_cagr(start_value: float | None, end_value: float | None, years: int)
     return (end_value / start_value) ** (1 / years) - 1
 
 
-def compute_stability(values: list[float]) -> float | None:
-    """
-    Stability uses coefficient of variation (CV).
-    Lower CV means more predictable earnings; we invert to [0, 1].
-    """
-    if len(values) < 3:
-        return None
-    avg_value = mean(values)
-    if avg_value <= 0:
-        return None
-    cv = pstdev(values) / avg_value
-    return max(0.0, 1.0 - (cv * 2))
-
-
 def compute_history_metrics(
     history_rows: Iterable[Mapping[str, object]],
 ) -> dict[str, HistoryMetrics]:
-    """
-    Convert raw financial history into quality-centric metrics aligned with AWC's
-    "Investment DNA":
-    - Time is an ally -> stability (predictability) of EBIT and margins.
-    - Robust growth -> CAGR for EBIT and revenue.
-    - Moat & high ROC -> stability of margins and persistence of ROE.
-    """
-    grouped: dict[str, list[tuple[int, float | None, float | None, float | None]]] = defaultdict(list)
+    grouped = defaultdict(list)
     for row in history_rows:
-        grouped[row["orgnr"]].append(
-            (
-                int(row["year"]),
-                float(row["ebit"]) if row["ebit"] is not None else None,
-                float(row["revenue"]) if row["revenue"] is not None else None,
-                float(row["equity"]) if row["equity"] is not None else None,
-            )
-        )
+        grouped[row["orgnr"]].append(row)
 
     metrics: dict[str, HistoryMetrics] = {}
     for orgnr, rows in grouped.items():
-        rows.sort(key=lambda item: item[0])
+        rows.sort(key=lambda item: item["year"])
+        end_year = rows[-1]["year"]
+        start_avg_year = end_year - 3
+        avg_rows = [row for row in rows if row["year"] >= start_avg_year]
 
-        ebits = [value for _, value, _, _ in rows if value is not None]
-        revenues = [value for _, _, value, _ in rows if value is not None]
-        margins = [
-            ebit / revenue
-            for _, ebit, revenue, _ in rows
-            if ebit is not None and revenue not in (None, 0)
-        ]
-        roes = [
-            ebit / equity
-            for _, ebit, _, equity in rows
-            if ebit is not None and equity not in (None, 0)
-        ]
+        roics: list[float] = []
+        cash_convs: list[float] = []
+        nwc_sales_ratios: list[float] = []
+        gross_margins: dict[int, float] = {}
 
-        avg_ebit_3yr = mean(ebits) if ebits else None
-        avg_roe_3yr = mean(roes) if roes else None
+        for row in avg_rows:
+            revenue = float(row["revenue"] or 0.0)
+            ebit = float(row["ebit"] or 0.0)
+            equity = float(row["equity"] or 0.0)
+            net_debt = float(row["net_debt"] or 0.0)
+            cogs = float(row["cogs"] or 0.0)
+            depreciation = float(row["depreciation"] or 0.0)
+            inventory = float(row["inventory"] or 0.0)
+            receivables = float(row["trade_receivables"] or 0.0)
+            payables = float(row["trade_payables"] or 0.0)
 
-        start_year, end_year = rows[0][0], rows[-1][0]
+            invested_capital = equity + net_debt
+            if invested_capital > 0:
+                nopat = ebit * 0.78
+                roics.append(nopat / invested_capital)
+
+            if ebit > 0:
+                cash_convs.append((ebit + depreciation) / ebit)
+
+            if revenue > 0:
+                nwc = receivables + inventory - payables
+                nwc_sales_ratios.append(nwc / revenue)
+                gross_margins[row["year"]] = (revenue - cogs) / revenue
+
+        start_year = avg_rows[0]["year"]
         years = end_year - start_year
-        ebit_cagr = compute_cagr(rows[0][1], rows[-1][1], years)
-        revenue_cagr = compute_cagr(rows[0][2], rows[-1][2], years)
+        revenue_cagr = compute_cagr(
+            float(avg_rows[0]["revenue"] or 0.0),
+            float(avg_rows[-1]["revenue"] or 0.0),
+            years,
+        )
 
-        # "Time is an ally": stable EBIT implies predictability in compounding.
-        ebit_stability = compute_stability(ebits)
-
-        # "Moat": stable margins signal pricing power that persists under competition.
-        margin_stability = compute_stability(margins)
+        margin_change_pp = None
+        if start_year in gross_margins and end_year in gross_margins:
+            margin_change_pp = gross_margins[end_year] - gross_margins[start_year]
 
         metrics[orgnr] = HistoryMetrics(
-            avg_ebit_3yr=avg_ebit_3yr,
-            ebit_cagr=ebit_cagr,
             revenue_cagr=revenue_cagr,
-            ebit_stability=ebit_stability if ebit_stability is not None else 0.5,
-            margin_stability=margin_stability if margin_stability is not None else 0.5,
-            avg_roe_3yr=avg_roe_3yr,
+            avg_roic=mean(roics) if roics else None,
+            margin_change_pp=margin_change_pp,
+            avg_cash_conversion=mean(cash_convs) if cash_convs else None,
+            avg_nwc_sales=mean(nwc_sales_ratios) if nwc_sales_ratios else None,
         )
 
     return metrics
@@ -387,24 +333,24 @@ def build_features(
     for row in fs_current:
         revenue = row["revenue"]
         ebit = row["ebit"]
-        assets = row["assets"]
         equity = row["equity"]
-
-        ebit_margin = safe_divide(ebit, revenue)
-        roe_proxy = safe_divide(ebit, equity)
-        equity_ratio = safe_divide(equity, assets)
 
         metrics = history_metrics.get(
             row["orgnr"],
             HistoryMetrics(
-                avg_ebit_3yr=None,
-                ebit_cagr=None,
                 revenue_cagr=None,
-                ebit_stability=0.5,
-                margin_stability=0.5,
-                avg_roe_3yr=None,
+                avg_roic=None,
+                margin_change_pp=None,
+                avg_cash_conversion=None,
+                avg_nwc_sales=None,
             ),
         )
+
+        goodwill = float(row["goodwill"] or 0.0)
+        equity_value = float(equity or 0.0)
+        goodwill_ratio = None
+        if equity_value > 0:
+            goodwill_ratio = goodwill / equity_value
 
         features.append(
             FeatureRow(
@@ -412,18 +358,13 @@ def build_features(
                 year=row["year"],
                 revenue=revenue,
                 ebit=ebit,
-                ebitda=row["ebitda"],
-                assets=assets,
                 equity=equity,
-                avg_ebit_3yr=metrics.avg_ebit_3yr,
-                ebit_cagr=metrics.ebit_cagr,
                 revenue_cagr=metrics.revenue_cagr,
-                ebit_stability=metrics.ebit_stability,
-                margin_stability=metrics.margin_stability,
-                avg_roe_3yr=metrics.avg_roe_3yr,
-                ebit_margin=ebit_margin,
-                roe_proxy=roe_proxy,
-                equity_ratio=equity_ratio,
+                avg_roic=metrics.avg_roic,
+                margin_change_pp=metrics.margin_change_pp,
+                avg_cash_conversion=metrics.avg_cash_conversion,
+                avg_nwc_sales=metrics.avg_nwc_sales,
+                goodwill_ratio=goodwill_ratio,
             )
         )
     return features
@@ -432,26 +373,20 @@ def build_features(
 def compute_scores(features: Iterable[FeatureRow]) -> list[ScoreRow]:
     scored: list[ScoreRow] = []
     for feat in features:
-        bqs_score = compute_bqs(feat)
-        dps_score = compute_dps(feat)
-        quality_score = 0.70 * bqs_score + 0.30 * dps_score
+        compounder_score = compute_compounder_score(feat)
 
         scored.append(
             ScoreRow(
                 orgnr=feat.orgnr,
                 year=feat.year,
-                quality_score=float(quality_score),
-                compounder_score=float(quality_score),
+                quality_score=float(compounder_score),
+                compounder_score=float(compounder_score),
                 catalyst_score=0.0,
                 tags=build_tags(feat),
                 revenue=feat.revenue,
                 ebit=feat.ebit,
-                ebitda=feat.ebitda,
-                assets=feat.assets,
                 equity=feat.equity,
-                avg_ebit_3yr=feat.avg_ebit_3yr,
-                ebit_margin=feat.ebit_margin,
-                roe_proxy=feat.roe_proxy,
+                goodwill_ratio=feat.goodwill_ratio,
             )
         )
     return scored
