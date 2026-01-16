@@ -12,7 +12,7 @@ from .db import Base
 class Company(Base):
     __tablename__ = "company"
 
-    orgnr: Mapped[str] = mapped_column(String(9), primary_key=True)  # orgnr as string to preserve leading zeros
+    orgnr: Mapped[str] = mapped_column(String(9), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     nace: Mapped[str | None] = mapped_column(String(10), nullable=True)
     municipality: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -37,14 +37,26 @@ class FinancialStatement(Base):
     orgnr: Mapped[str] = mapped_column(String(9), ForeignKey("company.orgnr"), nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # Core P&L / Balance Sheet
     revenue: Mapped[float | None] = mapped_column(Float, nullable=True)
     ebitda: Mapped[float | None] = mapped_column(Float, nullable=True)
     ebit: Mapped[float | None] = mapped_column(Float, nullable=True)
     cfo: Mapped[float | None] = mapped_column(Float, nullable=True)
-
     assets: Mapped[float | None] = mapped_column(Float, nullable=True)
     equity: Mapped[float | None] = mapped_column(Float, nullable=True)
     net_debt: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # --- NEW FIELDS FOR AWC COMPOUNDER SCORE ---
+    cogs: Mapped[float | None] = mapped_column(Float, nullable=True)
+    payroll_expenses: Mapped[float | None] = mapped_column(Float, nullable=True)
+    depreciation: Mapped[float | None] = mapped_column(Float, nullable=True)
+    inventory: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trade_receivables: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trade_payables: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cash_equivalents: Mapped[float | None] = mapped_column(Float, nullable=True)
+    goodwill: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dividend: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_debt: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     company: Mapped["Company"] = relationship(back_populates="financials")
 
@@ -67,6 +79,22 @@ class Score(Base):
 
     tags: Mapped[str | None] = mapped_column(String(500), nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # --- NEW DETAILED METRICS & SCORES ---
+    roic: Mapped[float | None] = mapped_column(Float, nullable=True)
+    roic_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    revenue_cagr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    revenue_cagr_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    margin_change: Mapped[float | None] = mapped_column(Float, nullable=True)
+    margin_change_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    nwc_sales: Mapped[float | None] = mapped_column(Float, nullable=True)
+    nwc_sales_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    goodwill_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    goodwill_ratio_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     company: Mapped["Company"] = relationship(back_populates="scores")
 
@@ -92,8 +120,8 @@ class Outreach(Base):
     __tablename__ = "outreach"
 
     orgnr: Mapped[str] = mapped_column(String(9), ForeignKey("company.orgnr"), primary_key=True)
-    owner: Mapped[str | None] = mapped_column(String(100), nullable=True)  # "Halvor" for now
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default="new")  # new/contacted/meeting/...
+    owner: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="new")
     last_contact_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_step_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     note: Mapped[str | None] = mapped_column(String(2000), nullable=True)

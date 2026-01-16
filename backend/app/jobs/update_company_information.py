@@ -34,7 +34,7 @@ def build_prompt(company_name: str | None, orgnr: str, context_text: str = "") -
     return (
         "You are an investment analyst for AWC (Awilhelmsen Capital). AWC is a long-term, family-owned investment company "
         "looking for minority positions (20-40%) in high-quality Norwegian companies (AS/ASA).\n\n"
-        f"Analyze the following information about the company '{name}' (Org nr: {orgnr}):\n"
+        f"Do a live web search on company '{name}' (Org nr: {orgnr}) for the following information about the company :\n"
         f"--- START CONTEXT ---\n{context_text}\n--- END CONTEXT ---\n\n"
         "Based ONLY on the context above, generate a JSON response with the following 4 components:\n\n"
         "1. COMPANY DESCRIPTION\n"
@@ -137,7 +137,12 @@ def fetch_top_scores(session: Session, limit: int) -> list[dict[str, object]]:
                 c.name AS company_name
             FROM dbo.score AS s
             LEFT JOIN dbo.company AS c ON c.orgnr = s.orgnr
-            ORDER BY s.compounder_score DESC
+            WHERE (
+                c.description IS NULL
+                OR c.description LIKE 'No information available%' 
+                OR c.description LIKE 'No information provided%'
+            )
+            ORDER BY s.compounder_score DESC;
             """
         ),
         {"limit": limit},
@@ -174,7 +179,7 @@ def update_score_details(
             """
             UPDATE dbo.score
             SET deployability = :deployability,
-                score_deployability_explanation = :deployability_explanation,
+                deployability_explanation = :deployability_explanation,
                 urgency = :urgency,
                 urgency_explanation = :urgency_explanation
             WHERE id = :score_id

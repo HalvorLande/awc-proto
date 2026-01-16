@@ -1,5 +1,5 @@
 # DealRadar Database Data Dictionary (dbo)
-- Generated: **2026-01-15 17:14:13 UTC**
+- Generated: **2026-01-16 08:57:27 UTC**
 - Server: `AAD-GM12FD8W`
 - Database: `AwcProto`
 - Include row counts: `True`
@@ -27,6 +27,8 @@
 | 15 | `is_public_sector` | bit | NO | NO | ((0)) |
 | 16 | `excluded_reason` | nvarchar(200) | YES | NO |  |
 | 17 | `last_proff_fetch_at_utc` | datetime2 | YES | NO |  |
+| 18 | `description` | nvarchar(MAX) | YES | NO |  |
+| 19 | `proff_link` | varchar(255) | YES | NO |  |
 
 ### Key Constraints
 - **PRIMARY KEY** `PK__company__3580CFE607436CF7`: (`orgnr`)
@@ -349,7 +351,7 @@
 
 ---
 ## dbo.score
-- Approx rows: **2417**
+- Approx rows: **2426**
 ### Columns
 | # | Name | Type | Nullable | Identity | Default |
 |---:|---|---|:---:|:---:|---|
@@ -362,6 +364,20 @@
 | 7 | `tags` | varchar(500) | YES | NO |  |
 | 8 | `computed_at` | datetime | NO | NO |  |
 | 9 | `financial_data_availability` | int | NO | NO | ((0)) |
+| 10 | `deployability` | float | NO | NO | ((1)) |
+| 11 | `deployability_explanation` | nvarchar(MAX) | YES | NO |  |
+| 12 | `urgency` | float | NO | NO | ((0)) |
+| 13 | `urgency_explanation` | nvarchar(MAX) | YES | NO |  |
+| 14 | `roic` | float | YES | NO |  |
+| 15 | `roic_score` | float | YES | NO |  |
+| 16 | `revenue_cagr` | float | YES | NO |  |
+| 17 | `revenue_cagr_score` | float | YES | NO |  |
+| 18 | `margin_change` | float | YES | NO |  |
+| 19 | `margin_change_score` | float | YES | NO |  |
+| 20 | `nwc_sales` | float | YES | NO |  |
+| 21 | `nwc_sales_score` | float | YES | NO |  |
+| 22 | `goodwill_ratio` | float | YES | NO |  |
+| 23 | `goodwill_ratio_score` | float | YES | NO |  |
 
 ### Key Constraints
 - **PRIMARY KEY** `PK__score__3213E83FFDE70548`: (`id`)
