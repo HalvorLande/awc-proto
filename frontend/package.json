@@ -1,0 +1,9 @@
+{
+  "name": "awc-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Static React UI for the AWC prototype.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
