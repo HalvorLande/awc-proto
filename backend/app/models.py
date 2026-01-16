@@ -17,6 +17,7 @@ class Company(Base):
     nace: Mapped[str | None] = mapped_column(String(10), nullable=True)
     municipality: Mapped[str | None] = mapped_column(String(100), nullable=True)
     website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -79,6 +80,11 @@ class Score(Base):
 
     tags: Mapped[str | None] = mapped_column(String(500), nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    financial_data_availability: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    deployability: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    deployability_explanation: Mapped[str | None] = mapped_column(String, nullable=True)
+    urgency: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    urgency_explanation: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # --- NEW DETAILED METRICS & SCORES ---
     roic: Mapped[float | None] = mapped_column(Float, nullable=True)
